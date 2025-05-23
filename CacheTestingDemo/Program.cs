@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.StackExchangeRedis;
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,8 +51,16 @@ app.MapGet("/weatherforecast/{city}", async (string city, IDistributedCache cach
     // Create a cache key
     string cacheKey = city;
     
-    // Try to get forecast from cache
-    string? cachedForecast = await cache.GetStringAsync(cacheKey);
+    // Try to get forecast from cache with fallback
+    string? cachedForecast = null;
+    try
+    {
+        cachedForecast = await cache.GetStringAsync(cacheKey);
+    }
+    catch (RedisConnectionException)
+    {
+        // Continue execution - we'll generate a new forecast
+    }
     
     if (!string.IsNullOrEmpty(cachedForecast))
     {
@@ -68,26 +77,33 @@ app.MapGet("/weatherforecast/{city}", async (string city, IDistributedCache cach
             summaries[Random.Shared.Next(summaries.Length)]
         ))
         .ToArray();
-    
-    // Get cache duration from configuration
-    var cacheDuration = configuration.GetValue<TimeSpan>("Redis:CacheDuration"); 
-    var jitter = configuration.GetValue<TimeSpan>("Redis:JitterDuration");
-    
-    var jitterDurationInSeconds = (int)jitter.TotalSeconds;
-    var secondsToAdd = Random.Shared.Next(jitterDurationInSeconds);
-    var totalDuration = cacheDuration.Add(TimeSpan.FromSeconds(secondsToAdd));
-    
-    // Create cache options with base duration plus jitter
-    var cacheOptions = new DistributedCacheEntryOptions
+
+    try
     {
-        AbsoluteExpirationRelativeToNow = totalDuration
-    };
+        // Get cache duration from configuration
+        var cacheDuration = configuration.GetValue<TimeSpan>("Redis:CacheDuration"); 
+        var jitter = configuration.GetValue<TimeSpan>("Redis:JitterDuration");
     
-    await cache.SetStringAsync(
-        cacheKey, 
-        JsonSerializer.Serialize(forecast), 
-        cacheOptions
-    );
+        var jitterDurationInSeconds = (int)jitter.TotalSeconds;
+        var secondsToAdd = Random.Shared.Next(jitterDurationInSeconds);
+        var totalDuration = cacheDuration.Add(TimeSpan.FromSeconds(secondsToAdd));
+    
+        // Create cache options with base duration plus jitter
+        var cacheOptions = new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = totalDuration
+        };
+    
+        await cache.SetStringAsync(
+            cacheKey, 
+            JsonSerializer.Serialize(forecast), 
+            cacheOptions
+        );
+    }
+    catch
+    {
+        // Log but continue - the forecast will still be returned
+    }
     
     return forecast;
 })
