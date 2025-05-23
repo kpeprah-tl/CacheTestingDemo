@@ -45,10 +45,10 @@ var summaries = new[]
 };
 
 // Modified endpoint to use Redis cache
-app.MapGet("/weatherforecast", async (IDistributedCache cache, IHttpClientFactory clientFactory, IConfiguration configuration) =>
+app.MapGet("/weatherforecast/{city}", async (string city, IDistributedCache cache, IHttpClientFactory clientFactory, IConfiguration configuration) =>
 {
     // Create a cache key
-    string cacheKey = "WeatherForecast_Default";
+    string cacheKey = city;
     
     // Try to get forecast from cache
     string? cachedForecast = await cache.GetStringAsync(cacheKey);
